@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+# deps — Dependency tree viewer for Taskwarrior
+# Version: 0.1.0
+# Usage: tw [filter] deps
+
+"""
+Draws dependency trees for Taskwarrior tasks.
+
+  tw deps              — all trees (roots = tasks that block others, unblocked themselves)
+  tw 103 deps          — tree rooted at task 103
+  tw +project deps     — trees for tasks matching +project
+
+Tree direction: root = blocker (must be done first), children = what it blocks.
+Matches on-modify_deps-mgmt.py cascade perspective.
+"""
+
+import json
+import subprocess
+import sys
+
+TASK_BASE = ['task', 'rc.hooks=off', 'rc.verbose=nothing', 'rc.color=off']
+
+# ANSI
+BOLD  = '\033[1m'
+DIM   = '\033[2m'
+CYAN  = '\033[36m'
+RESET = '\033[0m'
+
+
+def task_export(filter_args):
+    r = subprocess.run(
+        TASK_BASE + list(filter_args) + ['export'],
+        capture_output=True, text=True,
+    )
+    if r.returncode not in (0, 1):
+        return []
+    try:
+        return json.loads(r.stdout or '[]')
+    except json.JSONDecodeError:
+        return []
+
+
+def task_depends(task):
+    """Return depends as list of UUID strings (handles list or comma-string)."""
+    d = task.get('depends', [])
+    if isinstance(d, str):
+        return [u.strip() for u in d.split(',') if u.strip()]
+    return list(d)
+
+
+def get_dependents(parent_uuid, all_tasks):
+    """Tasks from all_tasks that list parent_uuid as a dependency (it blocks them)."""
+    return [t for t in all_tasks if parent_uuid in task_depends(t)]
+
+
+def status_hint(task):
+    """Short status indicator for display."""
+    if task.get('wait'):
+        return f"{DIM}waiting{RESET}"
+    return ''
+
+
+def print_tree(parent_uuid, all_tasks, prefix='', visited=None):
+    if visited is None:
+        visited = set()
+
+    children = get_dependents(parent_uuid, all_tasks)
+    for i, t in enumerate(children):
+        t_uuid = t['uuid']
+        last = (i == len(children) - 1)
+        connector = '└── ' if last else '├── '
+        hint = status_hint(t)
+        t_id = t.get('id', '?')
+        t_desc = t['description']
+        hint_str = f'  ({hint})' if hint else ''
+        print(f"{prefix}{connector}{CYAN}[{t_id}]{RESET} {t_desc}{hint_str}")
+
+        if t_uuid not in visited:
+            visited.add(t_uuid)
+            extension = '    ' if last else '│   '
+            print_tree(t_uuid, all_tasks, prefix + extension, visited)
+
+
+def main():
+    filter_args = sys.argv[1:]
+
+    # All pending/waiting tasks for building the full graph
+    all_tasks = task_export(['(', 'status:pending', 'or', 'status:waiting', ')'])
+    if not all_tasks:
+        print('No pending tasks found.')
+        return
+
+    # UUIDs that appear as a dependency in at least one other task
+    blocker_uuids = set()
+    for t in all_tasks:
+        blocker_uuids.update(task_depends(t))
+
+    if filter_args:
+        # Show tree(s) rooted at filtered task(s)
+        roots = task_export(
+            filter_args + ['(', 'status:pending', 'or', 'status:waiting', ')']
+        )
+        if not roots:
+            print('No matching tasks found.')
+            return
+    else:
+        # Roots = tasks that block others but are not themselves blocked
+        roots = [
+            t for t in all_tasks
+            if t['uuid'] in blocker_uuids and not task_depends(t)
+        ]
+        if not roots:
+            # Fall back: any task that blocks something
+            roots = [t for t in all_tasks if t['uuid'] in blocker_uuids]
+
+    if not roots:
+        print('No dependency relationships found.')
+        return
+
+    visited_roots = set()
+    for t in roots:
+        t_uuid = t['uuid']
+        if t_uuid in visited_roots:
+            continue
+        visited_roots.add(t_uuid)
+
+        t_id   = t.get('id', '?')
+        t_desc = t['description']
+        hint   = status_hint(t)
+        hint_str = f'  ({hint})' if hint else ''
+        blocker_mark = f' {DIM}(also blocked){RESET}' if task_depends(t) else ''
+
+        print(f"{BOLD}{CYAN}[{t_id}]{RESET}{BOLD} {t_desc}{RESET}{blocker_mark}{hint_str}")
+        print_tree(t_uuid, all_tasks, visited=visited_roots)
+        print()
+
+
+if __name__ == '__main__':
+    main()
