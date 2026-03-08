@@ -2,16 +2,20 @@
 # Manage completion and deletion of tasks with dependencies and display dep trees
 
 name=deps-mgmt
-version=0.0.2
-type=hook
+version=0.2.0
+type=wrapper
 description=Manage completion and deletion of tasks with dependencies and display dep trees
 repo=https://github.com/linuxcaffe/tw-deps-mgmt-hook
-base_url=https://raw.githubusercontent.com/linuxcaffe/tw-deps-mgmt-hook/main
+base_url=https://raw.githubusercontent.com/linuxcaffe/tw-deps-mgmt-hook/master
 files=on-modify_deps-mgmt.py:hook
-tags=deps, parent, child, orphan, management, hook
+tags=deps, tree, parent, child, management, hook
 
-checksums=0fd79159ff6128b90fad98539850cd2e15a4419caaa60381b7c244a18d4dd9d7
+checksums=5111b8082de42467d9fdeb338caf82b6efd5d3c5662166eb30b79b252bea856f
 
 author=Designed by linuxcaffe, implemented by Claude Sonnet
 license=MIT
 requires_taskwarrior=2.6.0
+
+wrapper.keyword=deps
+wrapper.script=deps
+wrapper.type=command
